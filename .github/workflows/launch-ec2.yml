@@ -1,11 +1,11 @@
 name: Launch EC2 Instance in Mumbai
 
 on:
-  push:                  # Trigger when code is pushed
+  push:
     branches:
-      - main             # or master or any branch you want
-  pull_request:          # Trigger when a pull request is created or updated
-  workflow_dispatch:     # Manual trigger
+      - main
+  pull_request:
+  workflow_dispatch:
 
 jobs:
   launch-instance:
@@ -23,12 +23,20 @@ jobs:
           aws-region: ap-south-1
 
       - name: Launch EC2 Instance
+        shell: bash
         run: |
           echo "Launching EC2 instance..."
 
-          INSTANCE_ID=$(aws ec2 run-instances \
-            --image-id ami-0f58b397bc5c1f2e8 \
-            --instance-type t2.micro \
-            --key-name my-key \
-            --security-group-ids sg-0123456789abcdef0 \
-            --subnet-id subnet-0123456789abcdef0 \
+          INSTANCE_ID=$(
+            aws ec2 run-instances \
+              --image-id ami-0f58b397bc5c1f2e8 \
+              --instance-type t2.micro \
+              --key-name my-key \
+              --security-group-ids sg-0123456789abcdef0 \
+              --subnet-id subnet-0123456789abcdef0 \
+              --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=Github-EC2}]" \
+              --query "Instances[0].InstanceId" \
+              --output text
+          )
+
+          echo "Launched Instance ID: $INSTANCE_ID"
