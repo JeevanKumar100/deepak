@@ -1,33 +1,35 @@
 name: Launch EC2 Instance in Mumbai
 
 on:
-  workflow_dispatch:
+  workflow_dispatch:  # Manual trigger works
 
 jobs:
   launch-instance:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v3
+      - name: Checkout code
+        uses: actions/checkout@v3
 
-    - name: Configure AWS Credentials
-      uses: aws-actions/configure-aws-credentials@v2
-      with:
-        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-        aws-region: ap-south-1   # Mumbai Region
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ap-south-1
 
-    - name: Launch EC2 Instance
-      run: |
-        INSTANCE_ID=$(aws ec2 run-instances \
-          --image-id ami-0f58b397bc5c1f2e8 \
-          --instance-type t2.micro \
-          --key-name my-key \
-          --security-group-ids sg-0123456789abcdef0 \
-          --subnet-id subnet-0123456789abcdef0 \
-          --tag-specifications 'ResourceType=instance,Tags=[{Key=Name,Value=Github-EC2}]' \
-          --query "Instances[0].InstanceId" \
-          --output text)
+      - name: Launch EC2 Instance
+        run: |
+          echo "Launching EC2 instance..."
 
-        echo "Launched Instance: $INSTANCE_ID"
+          INSTANCE_ID=$(aws ec2 run-instances \
+            --image-id ami-0f58b397bc5c1f2e8 \
+            --instance-type t2.micro \
+            --key-name my-key \
+            --security-group-ids sg-0123456789abcdef0 \
+            --subnet-id subnet-0123456789abcdef0 \
+            --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=Github-EC2}]" \
+            --query "Instances[0].InstanceId" \
+            --output text)
+
+          echo "Launched Instance ID: $INSTANCE_ID"
