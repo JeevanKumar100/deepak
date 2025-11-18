@@ -1,7 +1,11 @@
 name: Launch EC2 Instance in Mumbai
 
 on:
-  workflow_dispatch:  # Manual trigger works
+  push:                  # Trigger when code is pushed
+    branches:
+      - main             # or master or any branch you want
+  pull_request:          # Trigger when a pull request is created or updated
+  workflow_dispatch:     # Manual trigger
 
 jobs:
   launch-instance:
@@ -28,9 +32,3 @@ jobs:
             --key-name my-key \
             --security-group-ids sg-0123456789abcdef0 \
             --subnet-id subnet-0123456789abcdef0 \
-            --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=Github-EC2}]" \
-            --query "Instances[0].InstanceId" \
-            --output text)
-
-          echo "Launched Instance ID: $INSTANCE_ID"
-
