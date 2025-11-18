@@ -10,13 +10,12 @@ on:
 jobs:
   launch-instance:
     runs-on: ubuntu-latest
+
     env:
       AWS_REGION: ap-south-1
-      # Optional defaults (override with repository secrets or change here)
       AMI_ID: ami-0f58b397bc5c1f2e8
       INSTANCE_TYPE: t2.micro
-      # If you have a key pair name, set it in repo secrets or here
-      KEY_NAME: new
+      KEY_NAME: new     # <-- Your key pair name (NO .pem)
 
     steps:
       - name: Checkout
@@ -29,89 +28,50 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Show AWS CLI version
-        run: aws --version
-
-      - name: Launch EC2 Instance (safe)
+      - name: Launch EC2 Instance (Clean & Error-Free)
         shell: bash
         run: |
-          set -euo pipefail
-          echo "Starting EC2 launch helper..."
+          set -e
+          echo "Launching EC2 in $AWS_REGION..."
 
-          # Inputs: you can set these as repo secrets or leave blank to auto-discover
-          # Provide SECURITY_GROUP_IDS as space-separated IDs if you want: "sg-aaa sg-bbb"
-          SECURITY_GROUP_IDS="${{ secrets.SECURITY_GROUP_IDS || '' }}"
-          SUBNET_ID="${{ secrets.SUBNET_ID || '' }}"
-          KEY_NAME="${{ env.KEY_NAME }}"
-          AMI_ID="${{ env.AMI_ID }}"
-          INSTANCE_TYPE="${{ env.INSTANCE_TYPE }}"
+          # Auto-discover default VPC
+          VPC_ID=$(aws ec2 describe-vpcs \
+            --filters Name=is-default,Values=true \
+            --query "Vpcs[0].VpcId" --output text)
 
-          echo "Inputs (may be blank):"
-          echo "  SUBNET_ID=$SUBNET_ID"
-          echo "  SECURITY_GROUP_IDS=$SECURITY_GROUP_IDS"
-          echo "  KEY_NAME=$KEY_NAME"
-          echo "  AMI_ID=$AMI_ID"
-          echo "  INSTANCE_TYPE=$INSTANCE_TYPE"
+          echo "Default VPC: $VPC_ID"
 
-          # Determine default VPC ID (if any)
-          VPC_ID=$(aws ec2 describe-vpcs --region "${AWS_REGION}" --filters Name=is-default,Values=true --query "Vpcs[0].VpcId" --output text || echo "")
-          if [[ -z "$VPC_ID" || "$VPC_ID" == "None" ]]; then
-            echo "No default VPC found. Listing first available VPC..."
-            VPC_ID=$(aws ec2 describe-vpcs --region "${AWS_REGION}" --query "Vpcs[0].VpcId" --output text)
-          fi
-          echo "Using VPC_ID: $VPC_ID"
+          # Auto-discover subnet inside default VPC
+          SUBNET_ID=$(aws ec2 describe-subnets \
+            --filters Name=vpc-id,Values=$VPC_ID \
+            --query "Subnets[0].SubnetId" --output text)
 
-          # Auto-discover Subnet if not provided
-          if [[ -z "$SUBNET_ID" || "$SUBNET_ID" == "None" ]]; then
-            echo "No SUBNET_ID provided — auto-selecting a subnet from VPC $VPC_ID"
-            SUBNET_ID=$(aws ec2 describe-subnets --region "${AWS_REGION}" --filters Name=vpc-id,Values="$VPC_ID" --query "Subnets[0].SubnetId" --output text)
-            echo "Auto-selected SUBNET_ID=$SUBNET_ID"
-          fi
+          echo "Using Subnet: $SUBNET_ID"
 
-          # Auto-discover a security group ID in that VPC if none provided
-          if [[ -z "$SECURITY_GROUP_IDS" || "$SECURITY_GROUP_IDS" == "None" ]]; then
-            echo "No SECURITY_GROUP_IDS provided — auto-selecting the default security group in VPC $VPC_ID"
-            DEFAULT_SG=$(aws ec2 describe-security-groups --region "${AWS_REGION}" --filters Name=vpc-id,Values="$VPC_ID" Name=group-name,Values=default --query "SecurityGroups[0].GroupId" --output text)
-            if [[ -z "$DEFAULT_SG" || "$DEFAULT_SG" == "None" ]]; then
-              # fallback: pick any sg in the vpc
-              DEFAULT_SG=$(aws ec2 describe-security-groups --region "${AWS_REGION}" --filters Name=vpc-id,Values="$VPC_ID" --query "SecurityGroups[0].GroupId" --output text)
-            fi
-            SECURITY_GROUP_IDS="$DEFAULT_SG"
-            echo "Auto-selected SECURITY_GROUP_IDS=$SECURITY_GROUP_IDS"
-          fi
+          # Auto-discover default security group
+          SG_ID=$(aws ec2 describe-security-groups \
+            --filters Name=vpc-id,Values=$VPC_ID Name=group-name,Values=default \
+            --query "SecurityGroups[0].GroupId" --output text)
 
-          # ---- Final validation: ensure we have security group IDs (sg-...) not names ----
-          # If the value looks like a name (no 'sg-' prefix), fail and instruct user
-          for sg in $SECURITY_GROUP_IDS; do
-            if [[ ! "$sg" =~ ^sg- ]]; then
-              echo "ERROR: Detected security group value that is not an ID: '$sg'"
-              echo "You must provide security group IDs (like sg-012345...), not group names, when using a subnet."
-              echo "Set the repository secret SECURITY_GROUP_IDS to the ID(s) or remove SUBNET_ID to run in a non-VPC context."
-              exit 1
-            fi
-          done
+          echo "Using Security Group: $SG_ID"
 
-          echo "Final values:"
-          echo "  SUBNET_ID=$SUBNET_ID"
-          echo "  SECURITY_GROUP_IDS=$SECURITY_GROUP_IDS"
-          echo "  KEY_NAME=$KEY_NAME"
-          echo "  AMI_ID=$AMI_ID"
-
-          # Run the instance and capture InstanceId
-          # Note: use --security-group-ids (IDs only). Do NOT use --security-groups (names) with --subnet-id.
-          INSTANCE_ID=$(
-            aws ec2 run-instances \
-              --image-id "$AMI_ID" \
-              --instance-type "$INSTANCE_TYPE" \
-              $( if [[ -n "$KEY_NAME" && "$KEY_NAME" != "None" ]]; then echo "--key-name \"$KEY_NAME\""; fi ) \
-              --security-group-ids $SECURITY_GROUP_IDS \
-              --subnet-id "$SUBNET_ID" \
-              --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=Github-EC2}]" \
-              --query "Instances[0].InstanceId" \
-              --output text
-          )
+          # Launch EC2 instance
+          INSTANCE_ID=$(aws ec2 run-instances \
+            --image-id $AMI_ID \
+            --instance-type $INSTANCE_TYPE \
+            --key-name $KEY_NAME \
+            --security-group-ids $SG_ID \
+            --subnet-id $SUBNET_ID \
+            --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=Github-EC2}]" \
+            --query "Instances[0].InstanceId" \
+            --output text)
 
           echo "Launched Instance ID: $INSTANCE_ID"
-          # Optionally get public IP (may be empty if no public ip assigned)
-          PUBLIC_IP=$(aws ec2 describe-instances --instance-ids "$INSTANCE_ID" --query "Reservations[0].Instances[0].PublicIpAddress" --output text || echo "")
-          echo "Public IP: $PUBLIC_IP"
+
+          # Optional: Fetch public IP
+          PUBLIC_IP=$(aws ec2 describe-instances \
+            --instance-ids $INSTANCE_ID \
+            --query "Reservations[0].Instances[0].PublicIpAddress" \
+            --output text)
+
+          echo "Instance Public IP: $PUBLIC_IP"
