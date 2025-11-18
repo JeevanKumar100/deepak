@@ -33,3 +33,4 @@ jobs:
             --output text)
 
           echo "Launched Instance ID: $INSTANCE_ID"
+
